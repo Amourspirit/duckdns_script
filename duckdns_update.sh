@@ -26,9 +26,10 @@
 # Script to update one or more ip address with the free service duckdns.org
 # Created by Paul Moss
 # Created: 2020-06-19
+# Updated: 2020-06-24
 # File Name: duckdns_update.sh
 # Github: https://github.com/Amourspirit/duckdns_script
-# Version 1.0.1
+# Version 1.0.2
 
 TOKEN_FILE="$HOME/.duckdns/token"
 WGET=/usr/bin/wget
@@ -118,7 +119,7 @@ RESULT=$(cat $IP_LOGFILE | grep '^[0-9]\{1,3\}\(\.[0-9]\{1,3\}\)\{3\}$')
 if [[ -n "$RESULT" ]]; then
     # Valid ip address format found
     # write the previous ipaddress into the old ip log file
-    echo $GETLOGIP > $OLD_IP_LOGFILE
+    echo $RESULT > $OLD_IP_LOGFILE
     # exit normally
     exit 0
 fi

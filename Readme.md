@@ -216,6 +216,9 @@ cat ~/.duckdns/log/ip.log
 
 If for any reason the script can not find a valid public ip address then `~/.duckdns/log/ip.log` file will contain a message and **not** a valid ip address.
 
+### ip_old.log
+The previous public ip address will be stored in the log file `~/.duckdns/log/ip_old.log` after the script is run.
+
 ### duckdns.log
 
 When this script sucessfully updates [duckdns.org](https://www.duckdns.org) the `~/.duckdns/log/duckdns.log` will contain the message `OK`.

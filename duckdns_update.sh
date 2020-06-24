@@ -28,7 +28,7 @@
 # Created: 2020-06-19
 # File Name: duckdns_update.sh
 # Github: https://github.com/Amourspirit/duckdns_script
-# Version 1.0.0
+# Version 1.0.1
 
 TOKEN_FILE="$HOME/.duckdns/token"
 WGET=/usr/bin/wget
@@ -36,6 +36,7 @@ MYIP=$($WGET -qT 20 -O - "http://myip.dnsomatic.com")
 LOG_PATH="$HOME/.duckdns/log"
 mkdir -p "$LOG_PATH"
 IP_LOGFILE="$LOG_PATH/ip.log"
+OLD_IP_LOGFILE="$LOG_PATH/ip_old.log"
 RESULT_LOGFILE="$LOG_PATH/duckdns.log"
 DOMAINS="$HOME/.duckdns/domains.txt"
 
@@ -57,6 +58,7 @@ function trim () {
 }
 
 test -f $IP_LOGFILE || touch $IP_LOGFILE
+test -f $OLD_IP_LOGFILE || touch $OLD_IP_LOGFILE
 test -f $RESULT_LOGFILE || touch $RESULT_LOGFILE
 
 # Check for a token file and if it exist then test to see if we can read it.
@@ -85,6 +87,7 @@ else
 fi
 TOKEN=$(cat $TOKEN_FILE)
 GETLOGIP=$(cat $IP_LOGFILE)
+RESULT=''
 
 if [ -n "$MYIP" -a "$GETLOGIP" != "$MYIP" ]; then
     # empty the ip logfile
@@ -101,6 +104,8 @@ if [ -n "$MYIP" -a "$GETLOGIP" != "$MYIP" ]; then
             echo url="https://www.duckdns.org/update?domains=$D&token=$TOKEN&ip=" | /usr/bin/curl -k -o $RESULT_LOGFILE -K -
             RESULT=$(cat $RESULT_LOGFILE)
             if [ $RESULT = "OK" ]; then
+                
+                # write the current ipaddress into the current ip log file
                 echo $MYIP > $IP_LOGFILE
             else
                 echo "bad ip" > $IP_LOGFILE
@@ -112,6 +117,8 @@ fi
 RESULT=$(cat $IP_LOGFILE | grep '^[0-9]\{1,3\}\(\.[0-9]\{1,3\}\)\{3\}$')
 if [[ -n "$RESULT" ]]; then
     # Valid ip address format found
+    # write the previous ipaddress into the old ip log file
+    echo $GETLOGIP > $OLD_IP_LOGFILE
     # exit normally
     exit 0
 fi

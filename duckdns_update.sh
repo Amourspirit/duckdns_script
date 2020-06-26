@@ -29,11 +29,10 @@
 # Updated: 2020-06-24
 # File Name: duckdns_update.sh
 # Github: https://github.com/Amourspirit/duckdns_script
-# Version 1.0.3
+# Version 1.0.4
 
 TOKEN_FILE="$HOME/.duckdns/token"
-WGET=/usr/bin/wget
-MYIP=$($WGET -qT 20 -O - "http://myip.dnsomatic.com")
+MYIP=$(wget -qT 20 -O - "https://checkip.amazonaws.com/")
 LOG_PATH="$HOME/.duckdns/log"
 mkdir -p "$LOG_PATH"
 IP_LOGFILE="$LOG_PATH/ip.log"
@@ -57,6 +56,7 @@ function trim () {
     var="${var%"${var##*[![:space:]]}"}";   # remove trailing whitespace characters
     echo -n "$var";
 }
+
 
 test -f $IP_LOGFILE || touch $IP_LOGFILE
 test -f $OLD_IP_LOGFILE || touch $OLD_IP_LOGFILE
@@ -86,6 +86,12 @@ else
     echo "Unable to locate domain file: $DOMAINS" > $RESULT_LOGFILE
     exit 1
 fi
+# test if the ipaddress is valid
+if [[ ! $MYIP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    echo 'Unable to obtain ip address!' > $RESULT_LOGFILE
+    exit 1
+fi
+
 TOKEN=$(cat $TOKEN_FILE)
 GETLOGIP=$(cat $IP_LOGFILE)
 RESULT=''

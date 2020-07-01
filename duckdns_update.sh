@@ -29,34 +29,62 @@
 # Updated: 2020-06-24
 # File Name: duckdns_update.sh
 # Github: https://github.com/Amourspirit/duckdns_script
-# Version 1.0.4
+# Version 1.0.5
 
 TOKEN_FILE="$HOME/.duckdns/token"
-MYIP=$(wget -qT 20 -O - "https://checkip.amazonaws.com/")
+IP=0
 LOG_PATH="$HOME/.duckdns/log"
 mkdir -p "$LOG_PATH"
 IP_LOGFILE="$LOG_PATH/ip.log"
 OLD_IP_LOGFILE="$LOG_PATH/ip_old.log"
 RESULT_LOGFILE="$LOG_PATH/duckdns.log"
 DOMAINS="$HOME/.duckdns/domains.txt"
+TMP_FILE='/tmp/current_ip_address'
+# Age in minutes to keep ipaddress store in tmp file
+MAX_IP_AGE=5
 
-# function: trim
+# function: _trim
 # Param 1: the variable to trim whitespace from
 # Usage:
 #   while read line; do
 #       if [[ "$line" =~ ^[^#]*= ]]; then
-#           setting_name=$(trim "${line%%=*}");
-#           setting_value=$(trim "${line#*=}");
+#           setting_name=$(_trim "${line%%=*}");
+#           setting_value=$(_trim "${line#*=}");
 #           SCRIPT_CONF[$setting_name]=$setting_value
 #       fi
 #   done < "$TMP_CONFIG_COMMON_FILE"
-function trim () {
+function _trim () {
     local var=$1;
     var="${var#"${var%%[![:space:]]*}"}";   # remove leading whitespace characters
     var="${var%"${var##*[![:space:]]}"}";   # remove trailing whitespace characters
     echo -n "$var";
 }
 
+# Test if a value is in the format of a valid IP4 Address
+# Usage:
+# if [[ $(_ip_valid $IP) ]]; then
+#   echo 'IP is valid'
+# else
+#   echo 'Invalid IP'
+# fi
+function _ip_valid() {
+  local _ip="$1"
+  if [[ $_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+	echo 1
+  fi
+}
+
+# Gets if a file is older then a time passed in as minutes
+# @param1 file to check
+# @param2 Age of file in minutes
+# Return 1 if file is older then time passed in; Otherwise, null
+function _file_older() {
+	local _file="$1"
+	local _min="$2"
+	if ! [[ $(stat -c %Y -- "${_file}") -lt $(date +%s --date="${_min} min ago") ]]; then
+		echo 1
+	fi
+}
 
 test -f $IP_LOGFILE || touch $IP_LOGFILE
 test -f $OLD_IP_LOGFILE || touch $OLD_IP_LOGFILE
@@ -86,10 +114,22 @@ else
     echo "Unable to locate domain file: $DOMAINS" > $RESULT_LOGFILE
     exit 1
 fi
-# test if the ipaddress is valid
-if [[ ! $MYIP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-    echo 'Unable to obtain ip address!' > $RESULT_LOGFILE
-    exit 1
+
+IP_VALID=0
+if [[ -r "${TMP_FILE}" ]] && [[ $(_file_older "${TMP_FILE}" "${MAX_IP_AGE}") ]]; then
+	IP=$(_trim $(cat "${TMP_FILE}"))
+	IP_VALID=$(_ip_valid "${IP}")
+	# echo 'Optained ip address from tmp file'
+fi
+if [[ $IP_VALID -ne 1 ]]; then
+	IP=$(wget -qT 20 -O - "https://checkip.amazonaws.com/") && IP=$(_trim "$IP")
+	IP_VALID=$(_ip_valid "${IP}")
+	echo "${IP}" > "${TMP_FILE}"
+	# echo 'Optained ip address Internet'
+fi
+if [[ $IP_VALID -ne 1 ]]; then
+	echo 'Unable to optain valid ip address. Halting'
+	exit 1
 fi
 
 TOKEN=$(cat $TOKEN_FILE)
@@ -99,7 +139,7 @@ RESULT=''
 # write the previous ipaddress into the old ip log file
 echo $GETLOGIP > $OLD_IP_LOGFILE
 
-if [ -n "$MYIP" -a "$GETLOGIP" != "$MYIP" ]; then
+if [ -n "$IP" -a "$GETLOGIP" != "$IP" ]; then
     # empty the ip logfile
 	# echo "ko" > $IP_LOGFILE
     truncate -s 0 "$IP_LOGFILE"
@@ -107,7 +147,7 @@ if [ -n "$MYIP" -a "$GETLOGIP" != "$MYIP" ]; then
     while IFS="" read -r p || [ -n "$p" ]
     do
         # trim the current line of the domains.txt file
-        D=$(trim "$p");
+        D=$(_trim "$p");
         # make sure the currentt line is not empty
         if [[ -n "$D" ]]; then
             # printf '%s\n' "$D"
@@ -116,7 +156,7 @@ if [ -n "$MYIP" -a "$GETLOGIP" != "$MYIP" ]; then
             if [ $RESULT = "OK" ]; then
                 
                 # write the current ipaddress into the current ip log file
-                echo $MYIP > $IP_LOGFILE
+                echo $IP > $IP_LOGFILE
             else
                 echo "bad ip" > $IP_LOGFILE
             fi

@@ -34,11 +34,11 @@
 # Updated: 2020-07-08
 # File Name: duckdns_update.sh
 # Github: https://github.com/Amourspirit/duckdns_script
-# Version 1.1.0
+# Version 1.2.0
 #endregion
 
 #region Default Settings
-VER='1.1.0'
+VER='1.2.0'
 CONFIG_FILE="$HOME/.duckdns/config.cfg"
 TOKEN_FILE="$HOME/.duckdns/token"
 IP=0
@@ -47,8 +47,10 @@ OLD_IP_LOGFILE="$HOME/.duckdns/log/ip_old.log"
 RESULT_LOGFILE="$HOME/.duckdns/log/duckdns.log"
 DOMAINS="$HOME/.duckdns/domains.txt"
 TMP_IP_FILE='/tmp/current_ip_address'
+IP_URL='https://checkip.amazonaws.com/'
 # Age in minutes to keep ipaddress store in tmp file
 MAX_IP_AGE=5
+PERSIST_LOG=0
 #endregion
 
 #region Functions
@@ -97,12 +99,12 @@ function _ip_valid() {
 # @return 1 if file is older then time passed in; Otherwise, null
 # @example:
 # if [[ $(_file_older "${FILE}" 5) ]]; then;
-#    echo 'File
+#    echo 'File is older'
 # fi
 function _file_older() {
     local _file="$1"
     local _min="$2"
-    if ! [[ $(stat -c %Y -- "${_file}") -lt $(date +%s --date="${_min} min ago") ]]; then
+    if [[ $(stat -c %Y -- "${_file}") -lt $(date +%s --date="${_min} min ago") ]]; then
         echo 1
     fi
 }
@@ -207,6 +209,75 @@ function _int_assign() {
     [ "$newval" -eq "$newval" ] 2>/dev/null && int=$newval && return 0 || return 1
 }
 #endregion
+
+#region _endswith()
+
+# Case sensitive test for a string that ends with a substring
+# Usage:
+# if [[ $(_endswith "${MY_STRING}" "${MY_SUB_STRING}") ]]; then
+#   echo 'found'
+# else
+#   echo 'not found'
+# fi
+function _endswith() {
+    local _str="$1"
+    local _sub="$(printf '%s' "$2" | sed 's/[.[\*^$]/\\&/g')" # escape regex for grep or sed (BRE)
+    local _result=$(echo "${_str}" | grep -- "${_sub}$")
+    if ! [[ -z ${_result} ]]; then
+        echo 1
+    fi
+}
+#endregion
+
+#region _startswith()
+
+# Case sensitive test for a string that starts with a substring
+# Usage:
+# if [[ $(_startswith "${MY_STRING}" "${MY_SUB_STRING}") ]]; then
+#   echo 'found'
+# else
+#   echo 'not found'
+# fi
+function _startswith() {
+    local _str="$1"
+    local _sub="$(printf '%s' "$2" | sed 's/[.[\*^$]/\&/g')" # escape regex for grep or sed (BRE)
+    local _result=$(echo "${_str}" | grep "^${_sub}")
+    if ! [[ -z ${_result} ]]; then
+        echo 1
+    fi
+}
+#endregion
+
+#region _lower_case()
+
+# converts string to lowercase
+# Usage: echo "${ACME}" | _lower_case
+function _lower_case() {
+    # shellcheck disable=SC2018,SC2019
+    tr 'A-Z' 'a-z'
+}
+#endregion
+
+#region _clean_domains()
+
+# Removes trailing .duckdns.org from all elements of array
+# @Param: ByVal Array
+function _clean_domains() {
+    local -n _arr=$1
+    local _i=''
+    local _lc=''
+    local _s=''
+
+    for _i in "${!_arr[@]}"; do
+        _lc="${_arr[$_i]}"
+        _lc="${_lc}" | _lower_case
+        if [[ $(_endswith "${_lc}" '.duckdns.org') ]]; then
+            _s="${_arr[$_i]}"
+            _arr[$_i]="${_s::${#_s}-12}" # remove last 12 characters
+        fi
+    done
+}
+#endregion
 #endregion
 
 #region Read Configuraton from File
@@ -216,23 +287,27 @@ if [ $? -eq 0 ]; then
     # create an array that contains general configuration values
     typeset -A GEN_CONF # init array
     GEN_CONF=(# set default values in config array
+        [IP_URL]="${IP_URL}"
         [IP_LOGFILE]="${IP_LOGFILE}"
         [OLD_IP_LOGFILE]="${OLD_IP_LOGFILE}"
         [RESULT_LOGFILE]="${RESULT_LOGFILE}"
         [TMP_IP_FILE]="${TMP_IP_FILE}"
         [MAX_IP_AGE]="${MAX_IP_AGE}"
+        [PERSIST_LOG]="${PERSIST_LOG}"
     )
     _get_cfg_section GEN_CONF ${CONFIG_FILE} 'GENERAL'
 
-    for key in $(eval echo \$\{'!'${GEN_CONF}[@]\}); do
-        GEN_CONF["${key}"]="$(eval echo \$\{${GEN_CONF}[${key}]\})"
+    for key in "${!GEN_CONF[@]}"; do
+        GEN_CONF["${key}"]="$(eval echo ${GEN_CONF[$key]})"
     done
 
+    IP_URL="${GEN_CONF[IP_URL]}"
     IP_LOGFILE="${GEN_CONF[IP_LOGFILE]}"
     OLD_IP_LOGFILE="${GEN_CONF[OLD_IP_LOGFILE]}"
     RESULT_LOGFILE="${GEN_CONF[RESULT_LOGFILE]}"
     TMP_IP_FILE="${GEN_CONF[TMP_IP_FILE]}"
     MAX_IP_AGE="${GEN_CONF[MAX_IP_AGE]}"
+    PERSIST_LOG="${GEN_CONF[PERSIST_LOG]}"
     unset GEN_CONF # done with array, release memory
 
     _get_cfg_section DOMAINS_ARR ${CONFIG_FILE} 'DOMAINS' 1
@@ -248,16 +323,13 @@ usage() {
         exit 0
     fi
 }
-while getopts "hvd:k:m:i:t:o:r:p:" arg; do
+while getopts "hvd:k:m:i:t:u:o:r:p:c:" arg; do
     case $arg in
-    d) # Comma seperated domain name(s) such as www.domain.tld,lib.domain.tld,sales.domain.tld
+    d) # Comma seperated sub domain name(s) such as special,worderful,myhomeserver
         IFS=',' read -ra DOMAINS_ARR <<<"${OPTARG}"
         ;;
     k) # The path to the token File
-        TOKEN_FILE="$(eval ${OPTARG})"
-        ;;
-    m) # The full path to named.conf file. Default: /etc/bind/named.conf
-        ZONE_MAIN="${OPTARG}"
+        TOKEN_FILE="$(eval echo ${OPTARG})"
         ;;
     i) # The ip address to be used. Default the the ip address provided by: https://checkip.amazonaws.com/
         IP="${OPTARG}"
@@ -270,14 +342,20 @@ while getopts "hvd:k:m:i:t:o:r:p:" arg; do
     t) # The amount of time the IP address is cached in minutes. Default is 5
         _int_assign MAX_IP_AGE ${OPTARG}
         ;;
+    u) # The url that will be used to query IP address. Default is https://checkip.amazonaws.com/
+        IP_URL="${OPTARG}"
+        ;;
     o) # The path to the old Log File
-        OLD_IP_LOGFILE="$(eval ${OPTARG})"
+        OLD_IP_LOGFILE="$(eval echo ${OPTARG})"
         ;;
     r) # The path to the results log file.
-        RESULT_LOGFILE="$(eval ${OPTARG})"
+        RESULT_LOGFILE="$(eval echo ${OPTARG})"
         ;;
-    p) # The path to the cached IP address
-        TMP_IP_FILE="$(eval ${OPTARG})"
+    p) # Persist Log File. if true then log file will be persistent; Otherwise, Log will be wiped each time script is run
+        PERSIST_LOG="${OPTARG}"
+        ;;
+    c) # The path to the cached IP address
+        TMP_IP_FILE="$(eval echo ${OPTARG})"
         ;;
     v) # Display version info
         echo "$(basename $0) version: ${VER}"
@@ -299,6 +377,18 @@ if [ ${#DOMAINS_ARR[@]} -eq 0 ]; then
 fi
 #endregion
 
+#region init settings
+_clean_domains DOMAINS_ARR
+
+PERSIST_LOG=$(echo "${PERSIST_LOG}" | _lower_case)
+# accept 1 or t or y or true or yes
+if [[ "${PERSIST_LOG}" == 1 ]] || [[ $(_startswith "${PERSIST_LOG}" 't') ]] || [[ $(_startswith "${PERSIST_LOG}" 'y') ]]; then
+    PERSIST_LOG=1
+else
+    PERSIST_LOG=0
+fi
+#endregion
+
 #region Settings Tests
 test -f "${RESULT_LOGFILE}" || touch "${RESULT_LOGFILE}"
 if ! [[ -f "${RESULT_LOGFILE}" ]]; then
@@ -307,16 +397,21 @@ if ! [[ -f "${RESULT_LOGFILE}" ]]; then
     exit 1
 fi
 
+# empty log file
+if [[ PERSIST_LOG -eq 0 ]]; then
+    truncate -s 0 "${RESULT_LOGFILE}"
+fi
+
 test -f "${IP_LOGFILE}" || touch "${IP_LOGFILE}"
 if ! [[ -f "${IP_LOGFILE}" ]]; then
-    echo 'Path' "${IP_LOGFILE}" 'is not valid.' >${RESULT_LOGFILE}
-    echo 'Terminating with Error' >${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'Path' "${IP_LOGFILE}" 'is not valid.' >>${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'Terminating with Error' >>${RESULT_LOGFILE}
     exit 1
 fi
 test -f "${OLD_IP_LOGFILE}" || touch "${OLD_IP_LOGFILE}"
 if ! [[ -f "${OLD_IP_LOGFILE}" ]]; then
-    echo 'Path' "${OLD_IP_LOGFILE}" 'is not valid.' >${RESULT_LOGFILE}
-    echo 'Terminating with Error' >${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'Path' "${OLD_IP_LOGFILE}" 'is not valid.' >>${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'Terminating with Error' >>${RESULT_LOGFILE}
     exit 1
 fi
 
@@ -325,66 +420,71 @@ test -e "${TOKEN_FILE}"
 if [ $? -eq 0 ]; then
     test -r "${TOKEN_FILE}"
     if [ $? -ne 0 ]; then
-        echo "No read permissions for token file: ${TOKEN_FILE}" >${RESULT_LOGFILE}
+        echo "[$(date -u)] No read permissions for token file: ${TOKEN_FILE}" >>${RESULT_LOGFILE}
+        echo "[$(date -u)]" 'Terminating with Error' >>${RESULT_LOGFILE}
         exit 1
     fi
 else
-    echo "Unable to locate token file: ${TOKEN_FILE}" >${RESULT_LOGFILE}
+    echo "[$(date -u)] Unable to locate token file: ${TOKEN_FILE}" >>${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'Terminating with Error' >>${RESULT_LOGFILE}
     exit 1
 fi
-
-test -e "${DOMAINS}"
-if [ $? -eq 0 ]; then
-    test -r "${DOMAINS}"
-    if [ $? -ne 0 ]; then
-        echo "No read permissions for domain file: ${DOMAINS}" >${RESULT_LOGFILE}
-        exit 1
-    fi
-else
-    echo "Unable to locate domain file: ${DOMAINS}" >${RESULT_LOGFILE}
-    exit 1
-fi
-
-test -e "${TMP_IP_FILE}"
-if [ $? -eq 0 ]; then
-    test -r "${TMP_IP_FILE}"
-    if [ $? -ne 0 ]; then
-        echo "No read permissions for domain file: ${TMP_IP_FILE}" >${RESULT_LOGFILE}
-        exit 1
-    fi
-else
-    echo "Unable to locate domain file: ${TMP_IP_FILE}" >${RESULT_LOGFILE}
+test -f "${TMP_IP_FILE}" || touch "${TMP_IP_FILE}"
+if ! [[ -f "${TMP_IP_FILE}" ]]; then
+    echo "[$(date -u)]" 'Path' "${TMP_IP_FILE}" 'is not valid.' >>${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'Terminating with Error' >>${RESULT_LOGFILE}
     exit 1
 fi
 #endregion
 
 #region get ip address
+GETLOGIP=$(_trim $(head -n 1 "${TMP_IP_FILE}"))
+if ! [[ $(_ip_valid "${GETLOGIP}") ]]; then
+    echo "[$(date -u)]" 'No valid cached IP address found. File' "${TMP_IP_FILE}" >>${RESULT_LOGFILE}
+    GETLOGIP=''
+else
+    echo "[$(date -u)]" 'Valid cached IP address found. IP:' "${GETLOGIP} File: ${TMP_IP_FILE}" >>${RESULT_LOGFILE}
+fi
+
 IP_VALID=0
-if [[ -r "${TMP_IP_FILE}" ]] && [[ $(_file_older "${TMP_IP_FILE}" "${MAX_IP_AGE}") ]]; then
+if [[ $(_ip_valid "${IP}") ]]; then
+    # ip has been passed in via command line.
+    # check if cached ip is different
+
+    if ! [[ $(_ip_valid "${GETLOGIP}") ]] || [[ "$GETLOGIP" != "$IP" ]] || [[ $(_file_older "${TMP_IP_FILE}" "${MAX_IP_AGE}") ]]; then
+        echo "${IP}" >"${TMP_IP_FILE}"
+        echo "[$(date -u)]" 'Updating' "${TMP_IP_FILE}" >>${RESULT_LOGFILE}
+        echo "[$(date -u)] OLD IP: ${GETLOGIP} NEW IP: ${IP}" >>${RESULT_LOGFILE}
+        # GETLOGIP="${IP}"
+    fi
+    IP_VALID=1
+fi
+if [[ $IP_VALID -ne 1 ]] && [[ -r "${TMP_IP_FILE}" ]] && [[ $(_file_older "${TMP_IP_FILE}" "${MAX_IP_AGE}") ]]; then
     IP=$(_trim $(cat "${TMP_IP_FILE}"))
     IP_VALID=$(_ip_valid "${IP}")
     # echo 'Optained ip address from tmp file'
 fi
 if [[ $IP_VALID -ne 1 ]]; then
-    IP=$(wget -qT 20 -O - "https://checkip.amazonaws.com/") && IP=$(_trim "$IP")
+    IP=$(wget -qT 20 -O - "${IP_URL}") && IP=$(_trim "${IP}")
     IP_VALID=$(_ip_valid "${IP}")
     echo "${IP}" >"${TMP_IP_FILE}"
+    echo "[$(date -u)]" 'Updating' "${TMP_IP_FILE}" >>${RESULT_LOGFILE}
+    echo "[$(date -u)] OLD IP: ${GETLOGIP} NEW IP: ${IP}" >>${RESULT_LOGFILE}
     # echo 'Optained ip address Internet'
 fi
 if [[ $IP_VALID -ne 1 ]]; then
-    echo 'Unable to optain valid ip address. Halting'
+    echo "[$(date -u)]" 'Unable to optain valid ip address' >>${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'Terminating with Error' >>${RESULT_LOGFILE}
     exit 1
 fi
 #endregion
 
 TOKEN=$(cat ${TOKEN_FILE})
-GETLOGIP=$(cat ${IP_LOGFILE})
-RESULT=''
-
+RESULT='OK'
 # write the previous ipaddress into the old ip log file
 echo ${GETLOGIP} >${OLD_IP_LOGFILE}
 
-if [ -n "$IP" -a "$GETLOGIP" != "$IP" ]; then
+if [[ $(_ip_valid "${IP}") ]] && [[ "${GETLOGIP}" != "${IP}" ]]; then
     # empty the ip logfile
     # echo "ko" > $IP_LOGFILE
     truncate -s 0 "$IP_LOGFILE"
@@ -394,24 +494,24 @@ if [ -n "$IP" -a "$GETLOGIP" != "$IP" ]; then
         # make sure the currentt line is not empty
         if [[ -n "$D" ]]; then
             # printf '%s\n' "$D"
-            echo url='https://www.duckdns.org/update?domains='"${D}"'&token='"${TOKEN}"'&ip=' | /usr/bin/curl -k -o "${RESULT_LOGFILE}" -K -
-            RESULT=$(cat ${RESULT_LOGFILE})
-            if [ ${RESULT} = "OK" ]; then
+            echo "[$(date -u)]" 'Updading DuckDns for sub domain:' "${DOMAIN_NAME}" >>${RESULT_LOGFILE}
+            _tmp_result_file=$(mktemp) # make tmp file to hold
+            echo url='https://www.duckdns.org/update?domains='"${D}"'&token='"${TOKEN}&ip=${IP}" | /usr/bin/curl -k -o "${_tmp_result_file}" -K -
+            RESULT=$(cat ${_tmp_result_file})
+            unlink ${_tmp_result_file} # release the tmp file
+            _tmp_result_file=''
+            if [ "${RESULT}" = 'OK' ]; then
                 # write the current ipaddress into the current ip log file
                 echo ${IP} >${IP_LOGFILE}
+                echo "[$(date -u)]" 'DuckDns Update Result: OK' >>${RESULT_LOGFILE}
             else
                 echo "bad ip" >${IP_LOGFILE}
+                echo "[$(date -u)]" 'DuckDns Update Result: bad ip' >>${RESULT_LOGFILE}
             fi
         fi
     done
 fi
-# Read the ip log file and confirm it contains a valid ip address format.
-RESULT=$(cat ${IP_LOGFILE} | grep '^[0-9]\{1,3\}\(\.[0-9]\{1,3\}\)\{3\}$')
-if [[ -n "${RESULT}" ]]; then
-    # Valid ip address format found
-    # exit normally
+if [ "${RESULT}" = 'OK' ]; then
     exit 0
 fi
-# bad ip address
-# exit with an error code
 exit 2

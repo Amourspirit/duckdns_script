@@ -86,14 +86,14 @@ CLI switches
 
 Overrides of `~/.duckdns/config.cfg`
 
--c overrides `CACHED_IP_FILE` setting in `[GENERAL]` Section
--d overrides **[DOMAINS]** Section.
--k overrides `TOKEN_FILE` setting in `[GENERAL]` Section
--o overrides `OLD_IP_LOGFILE` setting in `[GENERAL]` Section
--p overrides `PERSIST_LOG` setting in `[GENERAL]` Section
--r overrides `RESULT_LOGFILE` setting in `[GENERAL]` Section
--t overrides `MAX_IP_AGE` setting in `[GENERAL]` Section
--u overrides `IP_URL` setting in `[GENERAL]` Section
+-c overrides `CACHED_IP_FILE` setting in `[GENERAL]` Section  
+-d overrides **[DOMAINS]** Section  
+-k overrides `TOKEN_FILE` setting in `[GENERAL]` Section  
+-o overrides `OLD_IP_LOGFILE` setting in `[GENERAL]` Section  
+-p overrides `PERSIST_LOG` setting in `[GENERAL]` Section  
+-r overrides `RESULT_LOGFILE` setting in `[GENERAL]` Section  
+-t overrides `MAX_IP_AGE` setting in `[GENERAL]` Section  
+-u overrides `IP_URL` setting in `[GENERAL]` Section  
 
 ### Updating DuckDns IP Address
 

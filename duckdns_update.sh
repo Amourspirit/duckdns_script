@@ -34,11 +34,11 @@
 # Updated: 2020-07-08
 # File Name: duckdns_update.sh
 # Github: https://github.com/Amourspirit/duckdns_script
-# Version 1.2.0
+# Version 2.0.0
 #endregion
 
 #region Default Settings
-VER='1.2.0'
+VER='2.0.0'
 CONFIG_FILE="$HOME/.duckdns/config.cfg"
 TOKEN_FILE="$HOME/.duckdns/token"
 IP=0
@@ -46,11 +46,12 @@ IP_LOGFILE="$HOME/.duckdns/log/ip.log"
 OLD_IP_LOGFILE="$HOME/.duckdns/log/ip_old.log"
 RESULT_LOGFILE="$HOME/.duckdns/log/duckdns.log"
 DOMAINS="$HOME/.duckdns/domains.txt"
-TMP_IP_FILE='/tmp/current_ip_address'
+CACHED_IP_FILE='/tmp/current_ip_address'
 IP_URL='https://checkip.amazonaws.com/'
 # Age in minutes to keep ipaddress store in tmp file
 MAX_IP_AGE=5
 PERSIST_LOG=0
+FORCE_UPDATE=0
 #endregion
 
 #region Functions
@@ -291,7 +292,7 @@ if [ $? -eq 0 ]; then
         [IP_LOGFILE]="${IP_LOGFILE}"
         [OLD_IP_LOGFILE]="${OLD_IP_LOGFILE}"
         [RESULT_LOGFILE]="${RESULT_LOGFILE}"
-        [TMP_IP_FILE]="${TMP_IP_FILE}"
+        [CACHED_IP_FILE]="${CACHED_IP_FILE}"
         [MAX_IP_AGE]="${MAX_IP_AGE}"
         [PERSIST_LOG]="${PERSIST_LOG}"
     )
@@ -305,7 +306,7 @@ if [ $? -eq 0 ]; then
     IP_LOGFILE="${GEN_CONF[IP_LOGFILE]}"
     OLD_IP_LOGFILE="${GEN_CONF[OLD_IP_LOGFILE]}"
     RESULT_LOGFILE="${GEN_CONF[RESULT_LOGFILE]}"
-    TMP_IP_FILE="${GEN_CONF[TMP_IP_FILE]}"
+    CACHED_IP_FILE="${GEN_CONF[CACHED_IP_FILE]}"
     MAX_IP_AGE="${GEN_CONF[MAX_IP_AGE]}"
     PERSIST_LOG="${GEN_CONF[PERSIST_LOG]}"
     unset GEN_CONF # done with array, release memory
@@ -323,13 +324,16 @@ usage() {
         exit 0
     fi
 }
-while getopts "hvd:k:m:i:t:u:o:r:p:c:" arg; do
+while getopts "hvfc:d:i:k:o:p:r:t:u:" arg; do
     case $arg in
+    c) # The path to the cached IP address
+        CACHED_IP_FILE="$(eval echo ${OPTARG})"
+        ;;
     d) # Comma seperated sub domain name(s) such as special,worderful,myhomeserver
         IFS=',' read -ra DOMAINS_ARR <<<"${OPTARG}"
         ;;
-    k) # The path to the token File
-        TOKEN_FILE="$(eval echo ${OPTARG})"
+    f) # Force ip update ignoring cache
+        FORCE_UPDATE=1
         ;;
     i) # The ip address to be used. Default the the ip address provided by: https://checkip.amazonaws.com/
         IP="${OPTARG}"
@@ -339,23 +343,23 @@ while getopts "hvd:k:m:i:t:u:o:r:p:c:" arg; do
             exit 1
         fi
         ;;
+    k) # The path to the token File
+        TOKEN_FILE="$(eval echo ${OPTARG})"
+        ;;
+    o) # The path to the old Log File
+        OLD_IP_LOGFILE="$(eval echo ${OPTARG})"
+        ;;
+    p) # Persist Log File. if true then log file will be persistent; Otherwise, Log will be wiped each time script is run
+        PERSIST_LOG="${OPTARG}"
+        ;;
+    r) # The path to the results log file.
+        RESULT_LOGFILE="$(eval echo ${OPTARG})"
+        ;;
     t) # The amount of time the IP address is cached in minutes. Default is 5
         _int_assign MAX_IP_AGE ${OPTARG}
         ;;
     u) # The url that will be used to query IP address. Default is https://checkip.amazonaws.com/
         IP_URL="${OPTARG}"
-        ;;
-    o) # The path to the old Log File
-        OLD_IP_LOGFILE="$(eval echo ${OPTARG})"
-        ;;
-    r) # The path to the results log file.
-        RESULT_LOGFILE="$(eval echo ${OPTARG})"
-        ;;
-    p) # Persist Log File. if true then log file will be persistent; Otherwise, Log will be wiped each time script is run
-        PERSIST_LOG="${OPTARG}"
-        ;;
-    c) # The path to the cached IP address
-        TMP_IP_FILE="$(eval echo ${OPTARG})"
         ;;
     v) # Display version info
         echo "$(basename $0) version: ${VER}"
@@ -429,21 +433,21 @@ else
     echo "[$(date -u)]" 'Terminating with Error' >>${RESULT_LOGFILE}
     exit 1
 fi
-test -f "${TMP_IP_FILE}" || touch "${TMP_IP_FILE}"
-if ! [[ -f "${TMP_IP_FILE}" ]]; then
-    echo "[$(date -u)]" 'Path' "${TMP_IP_FILE}" 'is not valid.' >>${RESULT_LOGFILE}
+test -f "${CACHED_IP_FILE}" || touch "${CACHED_IP_FILE}"
+if ! [[ -f "${CACHED_IP_FILE}" ]]; then
+    echo "[$(date -u)]" 'Path' "${CACHED_IP_FILE}" 'is not valid.' >>${RESULT_LOGFILE}
     echo "[$(date -u)]" 'Terminating with Error' >>${RESULT_LOGFILE}
     exit 1
 fi
 #endregion
 
 #region get ip address
-GETLOGIP=$(_trim $(head -n 1 "${TMP_IP_FILE}"))
+GETLOGIP=$(_trim $(head -n 1 "${CACHED_IP_FILE}"))
 if ! [[ $(_ip_valid "${GETLOGIP}") ]]; then
-    echo "[$(date -u)]" 'No valid cached IP address found. File' "${TMP_IP_FILE}" >>${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'No valid cached IP address found. File' "${CACHED_IP_FILE}" >>${RESULT_LOGFILE}
     GETLOGIP=''
 else
-    echo "[$(date -u)]" 'Valid cached IP address found. IP:' "${GETLOGIP} File: ${TMP_IP_FILE}" >>${RESULT_LOGFILE}
+    echo "[$(date -u)]" 'Valid cached IP address found. IP:' "${GETLOGIP} File: ${CACHED_IP_FILE}" >>${RESULT_LOGFILE}
 fi
 
 IP_VALID=0
@@ -451,24 +455,24 @@ if [[ $(_ip_valid "${IP}") ]]; then
     # ip has been passed in via command line.
     # check if cached ip is different
 
-    if ! [[ $(_ip_valid "${GETLOGIP}") ]] || [[ "$GETLOGIP" != "$IP" ]] || [[ $(_file_older "${TMP_IP_FILE}" "${MAX_IP_AGE}") ]]; then
-        echo "${IP}" >"${TMP_IP_FILE}"
-        echo "[$(date -u)]" 'Updating' "${TMP_IP_FILE}" >>${RESULT_LOGFILE}
+    if ! [[ $(_ip_valid "${GETLOGIP}") ]] || [[ "$GETLOGIP" != "$IP" ]] || [[ $(_file_older "${CACHED_IP_FILE}" "${MAX_IP_AGE}") ]]; then
+        echo "${IP}" >"${CACHED_IP_FILE}"
+        echo "[$(date -u)]" 'Updating' "${CACHED_IP_FILE}" >>${RESULT_LOGFILE}
         echo "[$(date -u)] OLD IP: ${GETLOGIP} NEW IP: ${IP}" >>${RESULT_LOGFILE}
         # GETLOGIP="${IP}"
     fi
     IP_VALID=1
 fi
-if [[ $IP_VALID -ne 1 ]] && [[ -r "${TMP_IP_FILE}" ]] && [[ $(_file_older "${TMP_IP_FILE}" "${MAX_IP_AGE}") ]]; then
-    IP=$(_trim $(cat "${TMP_IP_FILE}"))
+if [[ $IP_VALID -ne 1 ]] && [[ -r "${CACHED_IP_FILE}" ]] && [[ $(_file_older "${CACHED_IP_FILE}" "${MAX_IP_AGE}") ]]; then
+    IP=$(_trim $(cat "${CACHED_IP_FILE}"))
     IP_VALID=$(_ip_valid "${IP}")
     # echo 'Optained ip address from tmp file'
 fi
 if [[ $IP_VALID -ne 1 ]]; then
     IP=$(wget -qT 20 -O - "${IP_URL}") && IP=$(_trim "${IP}")
     IP_VALID=$(_ip_valid "${IP}")
-    echo "${IP}" >"${TMP_IP_FILE}"
-    echo "[$(date -u)]" 'Updating' "${TMP_IP_FILE}" >>${RESULT_LOGFILE}
+    echo "${IP}" >"${CACHED_IP_FILE}"
+    echo "[$(date -u)]" 'Updating' "${CACHED_IP_FILE}" >>${RESULT_LOGFILE}
     echo "[$(date -u)] OLD IP: ${GETLOGIP} NEW IP: ${IP}" >>${RESULT_LOGFILE}
     # echo 'Optained ip address Internet'
 fi
@@ -484,7 +488,7 @@ RESULT='OK'
 # write the previous ipaddress into the old ip log file
 echo ${GETLOGIP} >${OLD_IP_LOGFILE}
 
-if [[ $(_ip_valid "${IP}") ]] && [[ "${GETLOGIP}" != "${IP}" ]]; then
+if [[ $(_ip_valid "${IP}") ]] && [[ "${GETLOGIP}" != "${IP}" || FORCE_UPDATE -eq 1 ]]; then
     # empty the ip logfile
     # echo "ko" > $IP_LOGFILE
     truncate -s 0 "$IP_LOGFILE"

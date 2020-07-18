@@ -29,31 +29,6 @@ mkdir -p ~/.duckdns && touch ~/.duckdns/token && echo '77507db2-4f07-42d0-8554-b
 
 **Note** that the last command run in the command above is `chmod 0600 ~/.duckdns/token`. It is important to secure the *token* file to prevent other users from viewing its contents from other user accounts.
 
-#### Domains File
-
-On your [duckdns.org](https://www.duckdns.org) account you will have one or more subdomains set up. This script can update one or more subdomains with the current public ip address.
-
-To create a the file and populate it with `mydomain` you could use the following command in a terminal window.
-
-```bash
-mkdir -p ~/.duckdns && touch ~/.duckdns/domains.txt && echo 'mydomain' > ~/.duckdns/domains.txt && chmod 0600 ~/.duckdns/domains.txt
-```
-
-After you create the `domains.txt` file you may edit it to add other subdomains. Each subdomain will need to be on a seperate line.
-
-Example **domains.txt** entries.
-In the following example all three subdomains would be pointed to the current public ip address.
-
-```txt
-mydomain
-myotherdomain
-mysecretdomain
-```
-
-`mydomain.duckdns.org`, `myotherdomain.duckdns.org`, and `mysecretdomain.duckdns.org` would all point to the current public ip address after running this script.
-
-### Bash file
-
 ### Installing `duckdns_update.sh`
 
 In a terminal window the following command may be run to install the script into the `~/scripts/duckdns/` directory for the current user.
@@ -62,9 +37,67 @@ In a terminal window the following command may be run to install the script into
 mkdir -p ~/scripts/duckdns && cd ~/scripts/duckdns && wget https://raw.githubusercontent.com/Amourspirit/duckdns_script/master/duckdns_update.sh && chmod 700 duckdns_update.sh && ls
 ```
 
-### Updating IP Address
+## Configuration
 
-Once the `token` and `domains.txt` files are set up you can update [duckdns.org](https://www.duckdns.org) by running the following command.
+The following setting can be placed in a file `~/duckdns/config.cfg`
+See the [sample.cfg](sample.cfg) file.
+
+### GENERAL Section
+
+[GENERAL]
+| Setting        | Default                        | Descripton                                                                                                  |
+|----------------|--------------------------------|-------------------------------------------------------------------------------------------------------------|
+| TOKEN_FILE     | $HOME/.duckdns/token           | The Path to file that contains the token obtained from duckdns.org account.                                 |
+| IP_LOGFILE     | $HOME/.duckdns/log/ip.log      | This file will contain the current ip address upon successful update.                                       |
+| OLD_IP_LOGFILE | $HOME/.duckdns/log/ip_old.log  | The path to log file used to capture the previous ip address.                                               |
+| RESULT_LOGFILE | $HOME/.duckdns/log/duckdns.log | The file that result of running the script will be logged into.                                             |
+| CACHED_IP_FILE | /tmp/current_ip_address        | The temp file that is used to cache the ip address.                                                         |
+| MAX_IP_AGE     | 5                              | The number of minutes to keep ip address cached                                                             |
+| IP_URL         | https://checkip.amazonaws.com/ | The URL used to retrieve public ip address                                                                  |
+| PERSIST_LOG    | 0                              | If value is 1 then log file will persist; Otherwise, RESULT_LOGFILE will be clear at the start of execution |
+
+### DOMAINS Section
+
+A list of domins to update on duckdns.org when script executes.
+
+| [DOMAINS]  |
+|-----------|
+| mydomain  |
+| supercool |
+
+## Command line interface (CLI)
+
+CLI switches
+
+```txt
+-c  The path to the cached IP address
+-d  Comma seperated sub domain name(s) such as special,worderful,myhomeserver
+-f  Force ip update ignoring cache
+-i  The ip address to be used. Default the the ip address provided by: https://checkip.amazonaws.com/
+-k  The path to the token File
+-o  The path to the old Log File
+-p  Persist Log File. if true then log file will be persistent; Otherwise, Log will be wiped each time script is run
+-r  The path to the results log file.
+-t  The amount of time the IP address is cached in minutes. Default is 5
+-u  The url that will be used to query IP address. Default is https://checkip.amazonaws.com/
+-v  Display version info
+-h  Display help.
+```
+
+Overrides of `~/.duckdns/config.cfg`
+
+-c overrides `CACHED_IP_FILE` setting in `[GENERAL]` Section
+-d overrides **[DOMAINS]** Section.
+-k overrides `TOKEN_FILE` setting in `[GENERAL]` Section
+-o overrides `OLD_IP_LOGFILE` setting in `[GENERAL]` Section
+-p overrides `PERSIST_LOG` setting in `[GENERAL]` Section
+-r overrides `RESULT_LOGFILE` setting in `[GENERAL]` Section
+-t overrides `MAX_IP_AGE` setting in `[GENERAL]` Section
+-u overrides `IP_URL` setting in `[GENERAL]` Section
+
+### Updating DuckDns IP Address
+
+Once the `~/.duckdns/token` and `~/duckdns/config.cfg` files are set up you can update [duckdns.org](https://www.duckdns.org) by running the following command.
 
 ```bash
 /bin/bash ~/scripts/duckdns/duckdns_update.sh
@@ -72,11 +105,12 @@ Once the `token` and `domains.txt` files are set up you can update [duckdns.org]
 
 ### Force update
 
-By running the following command in a terminal window it will clear this scripts log files and then this script will send updates to [duckdns.org](https://www.duckdns.org) when the script is run again.
+By running the following command in a terminal window it will force update to [duckdns.org](https://www.duckdns.org).
 
 ```bash
-truncate -s 0 ~/.duckdns/log/ip.log && truncate -s 0 ~/.duckdns/log/duckdns.log
+/bin/bash ~/scripts/duckdns/duckdns_update.sh -f
 ```
+
 
 ### Automation
 
@@ -95,7 +129,7 @@ Starting and running this script only when system reboots is sometimes all that 
 
 A solution is to run the script as a service for the system.
 
-The following set up running this script as a system service.
+The following set up running this script as a system service.  
 **Warning** KNOW what you are doing before you attempt this.
 
 Create a new system service named `duckdns_update` by running the following command:
@@ -201,30 +235,4 @@ $ systemctl status duckdns_update.service
      Loaded: loaded (/etc/systemd/system/duckdns_update.service; disabled; vendor preset: enabled)
      Active: inactive (dead)
 
-```
-## Logs
-
-### ip.log
-
-The current public ip address will be stored in the log file `~/.duckdns/log/ip.log` after the script is run.
-
-The contents of this file can be viewed in a terminl window with the following command.
-
-```bash
-cat ~/.duckdns/log/ip.log
-```
-
-If for any reason the script can not find a valid public ip address then `~/.duckdns/log/ip.log` file will contain a message and **not** a valid ip address.
-
-### ip_old.log
-The previous public ip address will be stored in the log file `~/.duckdns/log/ip_old.log` after the script is run.
-
-### duckdns.log
-
-When this script sucessfully updates [duckdns.org](https://www.duckdns.org) the `~/.duckdns/log/duckdns.log` will contain the message `OK`.
-
-The contents of this file can be viewed in a terminl window with the following command.
-
-```bash
-cat ~/.duckdns/log/duckdns.log
 ```
